@@ -1,0 +1,540 @@
+<html>
+<meta charset="UTF-8">
+<head>
+  <link rel="stylesheet" href="css/bootstrap.min.css">
+  <link rel="stylesheet" href="css/index.css">
+  <link rel="stylesheet" href="css/theme.bootstrap_4.css">
+</head>
+<body>
+
+<div class="form-group">
+  <label for="dtmsPersReportXslx">Choose the DTMS personnel file</label>
+  <input type="file" id="dtmsPersReportXslx" name="dtmsPersReportXslx"/>
+</div>
+
+<div class="form-group">
+  <label for="dtmsApftReportXslx">Choose the DTMS APFT report to process</label>
+  <input type="file" id="dtmsApftReportXslx" name="dtmsApftReportXslx"/>
+</div>
+
+<div class="form-group">
+  <button id="displayApftStats" type="button" class="btn btn-primary btn-lg">Display APFT Statistics</button>
+</div>
+
+<table id="apftComplianceTable" class="table table-dark table-bordered tablesorter" > </table> 
+<table id="personTable" class="table table-dark table-bordered" > </table> 
+
+<script src="js/jquery-3.4.1.min.js"></script>
+<script src="js/jquery.csv.min.js"></script>
+<script src="js/luxon.min.js"></script>
+<script src="js/jszip.js"></script>
+<script src="js/xlsx.js"></script>
+<script src="js/d3.v5.min.js"></script>
+<script src="js/jquery.tablesorter.min.js"></script>
+
+<script>
+var DateTime = luxon.DateTime
+var dtmsPersReport = []
+var dtmsApftReport = []
+var dtmsUnits = []
+
+// create the dtmsPersReport from the Xslx file
+// this is the personnel report from DTMS
+$('#dtmsPersReportXslx').on('change', function(event) {
+  var dtmsPersReportFile = event.target.files[0]
+  var reader = new FileReader()
+  reader.onload = function (e) {
+    var data = e.target.result
+    var workbook = XLSX.read(data, {
+      type: 'binary'
+    })
+    dtmsPersReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+
+    dtmsUnits = processPersReport(dtmsPersReport)
+  }
+  reader.onerror = function (ex) {
+    console.log(ex)
+  }
+  reader.readAsBinaryString(dtmsPersReportFile)
+})
+
+// this contains personnel apft records
+$('#dtmsApftReportXslx').on('change', function(event) {
+  var dtmsApftReportFile = event.target.files[0]
+  var reader = new FileReader()
+  reader.onload = function (e) {
+    var data = e.target.result
+    var workbook = XLSX.read(data, {
+      type: 'binary'
+    })
+    dtmsApftReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+    // sort by date trained and remove duplicate person entries from the tng report
+    // only interested in the latest date trained
+
+    dtmsApftReport.forEach(function(apftRecord) {
+      dateData = apftRecord['LastApft'].split('/')
+      apftDate = new DateTime.utc(parseInt('20' + dateData[2]), parseInt(dateData[0]), parseInt(dateData[1]))
+      apftRecord['parsedLastApft'] = apftDate
+    })
+
+    // add the apft records to the dtmsUnits data structure
+    addApftToUnits(dtmsUnits, dtmsApftReport)
+  }
+  reader.onerror = function (ex) {
+    console.log(ex)
+  }
+  reader.readAsBinaryString(dtmsApftReportFile)
+})
+
+// addApftToUnits to add apft stats to the unit
+function addApftToUnits (dtmsUnits, dtmsApftReport) {
+  dtmsApftReport.forEach(function (apftRecord) {
+    dtmsUnits.forEach(function (unitRecord) {
+      unitRecord['soldierList'].forEach(function (soldier) {
+        if (soldier['UnitAssigned'] === apftRecord['UnitAssigned'] && apftRecord['ForRecord'] === 'TRUE' && soldier['LastName'] === apftRecord['LastName'] && soldier['Last4'] === apftRecord['Last4']) {
+          soldier['Age'] = apftRecord['Age']
+          soldier['ForRecord'] = apftRecord['ForRecord']
+          soldier['IsAlternative'] = apftRecord['IsAlternative']
+          soldier['LastApft'] = apftRecord['LastApft']
+          soldier['PassFail'] = apftRecord['PassFail']
+          soldier['PushupRaw'] = apftRecord['PushupRaw']
+          soldier['PushupScore'] = apftRecord['PushupScore']
+          soldier['RawRun'] = apftRecord['RawRun']
+          soldier['RunScore'] = apftRecord['RunScore']
+          soldier['Score'] = apftRecord['Score']
+          soldier['Sex'] = apftRecord['Sex']
+          soldier['SitupRaw'] = apftRecord['SitupRaw']
+          soldier['SitupScore'] = apftRecord['SitupScore']
+          soldier['parsedLastApft'] = apftRecord['parsedLastApft']
+        }
+      })
+    })
+  })
+}
+
+function processPersReport (dtmsPersReport) {
+  // count the unit size, also break down how many people by rank are in each unit
+  // unitPersStats
+  //  { 
+  //    unit: UNIT_NAME,
+  //    persCount: number,
+  //    soldierCount: number,
+  //    civilianCount: number,
+  //    rankArray: [ {rank: count}, {rank: count}... ]
+  //  }
+  // iterate through the dtmsPersReport and print out unique units with a count of how many are in the unit
+
+  // do two passes through the dtmsPersReport, on the first pass, get an array of all the different ranks inside the report
+  let rankArray = []
+  dtmsPersReport.forEach(function(person) {
+    if(!rankArray.includes(person['RankShort'])) {
+      rankArray.push(person['RankShort'])
+    }
+  })
+  let rankArrayWithCount = []
+  rankArray.forEach(function(rankVal) {
+    rankArrayWithCount.push({ rank: rankVal, rankCount: 0 })
+  })
+  dtmsPersReport.forEach(function(person) {
+    // if the unit doesn't exist in the array, add it with empty numbers
+    if(!unitExists(person['UnitAssigned'])) {
+      let unitRankArray = rankArrayWithCount.map(a => ({...a}))
+      dtmsUnits.push(
+        { 
+          unit: person['UnitAssigned'], 
+          persCount: 0,
+          soldierCount: 0,
+          civilianCount: 0,
+          rankArray: unitRankArray,
+          soldierList: []
+        })
+    } 
+    dtmsUnits.forEach(function(dtmsUnit) {
+      // if the person's UnitAssigned matches the current unit
+      // increment the persCount
+      // check if they're a Soldier or Civilian, increment the count accordingly
+      if (dtmsUnit['unit'] === person['UnitAssigned']) {
+        dtmsUnit.persCount++
+        // if there is a 'GS' in the person's rank, they are a civilian
+        if (person['RankShort'].indexOf('GS') >= 0) {
+          dtmsUnit.civilianCount++
+        }
+        // if there is no 'GS' in the person's rank, they are a soldier
+        if (person['RankShort'].indexOf('GS') == -1) {
+          dtmsUnit.soldierCount++
+          dtmsUnit.soldierList.push(person)
+        }
+        unitRankArray = dtmsUnit['rankArray']
+        // add 1 to the rankCount for the person's rank
+        for (let j = 0; j < unitRankArray.length; j++) {
+          if (unitRankArray[j]['rank'] === person['RankShort']) {
+            unitRankArray[j]['rankCount']++
+          }
+        }
+      }
+    })
+  })
+  // sort the units by name alphabetically
+  dtmsUnits = sortByUnit(dtmsUnits)
+  return dtmsUnits
+}
+
+function generateApftTable (dtmsUnits) {
+  let apftTable = document.getElementById('apftComplianceTable') 
+
+  while(apftTable.hasChildNodes()) {
+    apftTable.removeChild(apftTable.firstChild);
+  }
+
+  let apftTableHead = apftTable.createTHead()
+  let apftTableHeadRow = apftTableHead.insertRow(-1)
+  let apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Unit'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Complete/Req'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Due within 30 days'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Number Alt Events'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Average PU Score'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Average SU Score'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Average Run Score'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Average Score'
+
+  let apftTableBody = document.createElement('tbody')
+  dtmsUnits.forEach(function (unit) {
+    apftTableRow = apftTableBody.insertRow(-1)
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = unit['unit']
+    let soldierList = unit['soldierList']
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    let completeApft = getSoldiersWithValidApft(soldierList)
+    let requiredApft = getTotalSoldiers(soldierList)
+    apftTableCell.innerHTML = `${Math.round(completeApft*100/requiredApft)}% (${completeApft} / ${requiredApft})`;
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = getSoldiersDueWithin30Days(soldierList).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+    apftTableCell.onclick = within30DaysClickHandler
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = getNumAltEvents(soldierList).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = Math.round(getPUScoreAverage(soldierList)).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = Math.round(getSUScoreAverage(soldierList)).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = Math.round(getRunScoreAverage(soldierList)).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+
+    // to calculate the average score, sum the averages
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = Math.round(getScoreAverage(soldierList)).toString()
+    apftTableCell.setAttribute('data-unit',unit['unit'])
+  })
+
+  // make a row that has the totals
+  apftTableRow = apftTableBody.insertRow(-1)
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = 'All'
+  let allSoldiers = getSoldierListForUnit('All')
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  completeApft = getSoldiersWithValidApft(allSoldiers)
+  requiredApft = getTotalSoldiers(allSoldiers)
+  apftTableCell.innerHTML = `${Math.round(completeApft*100/requiredApft)}% (${completeApft} / ${requiredApft})`;
+  apftTableCell.setAttribute('data-unit','All')
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = getSoldiersDueWithin30Days(allSoldiers).toString()
+  apftTableCell.setAttribute('data-unit','All')
+  apftTableCell.onclick = within30DaysClickHandler
+
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = getNumAltEvents(allSoldiers).toString()
+  apftTableCell.setAttribute('data-unit','All')
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = Math.round(getPUScoreAverage(allSoldiers)).toString()
+  apftTableCell.setAttribute('data-unit','All')
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = Math.round(getSUScoreAverage(allSoldiers)).toString()
+  apftTableCell.setAttribute('data-unit','All')
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = Math.round(getRunScoreAverage(allSoldiers)).toString()
+  apftTableCell.setAttribute('data-unit','All')
+
+  // to calculate the average score, sum the averages
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = Math.round(getScoreAverage(allSoldiers)).toString()
+  apftTableCell.setAttribute('data-unit','All')
+
+  apftTable.appendChild(apftTableBody)
+}
+
+function within30DaysClickHandler (e) {
+  let unitText = e.srcElement.getAttribute('data-unit')
+  let soldierList = getSoldierListForUnit(unitText)
+  let soldierListDueWithin30Days = getSoldierListDueWithin30Days(soldierList)
+  displayPersonList(soldierListDueWithin30Days)
+}
+
+function getSoldierListForUnit (unitText) {
+  let unitObj = []
+  if (unitText === 'All') {
+    dtmsUnits.forEach(function (dtmsUnit) {
+      dtmsUnit['soldierList'].forEach(function (soldier) {
+        unitObj.push(soldier)
+      })
+    })
+    return unitObj
+  } else {
+    dtmsUnits.forEach(function (dtmsUnit) {
+      if (dtmsUnit['unit'] === unitText) {
+        dtmsUnit['soldierList'].forEach(function (soldier) {
+          unitObj.push(soldier)
+        })
+        return unitObj
+      }
+    })
+  }
+  return unitObj
+}
+
+function displayPersonList (soldierList) {
+  let personTable = document.getElementById('personTable')
+
+  while(personTable.hasChildNodes()) {
+    personTable.removeChild(personTable.firstChild);
+  }
+
+  let personTableHeader = personTable.createTHead()
+  let personTableHeaderRow = personTableHeader.insertRow(-1)
+  let personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Rank'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Name'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Unit'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Date of Last APFT'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'Score'
+
+  let personTableBody = document.createElement('tbody')
+  personTable.appendChild(personTableBody)
+
+  let personTableBodyRow
+  let personTableBodyCell
+
+  soldierList.forEach(function (soldier) {
+    personTableBodyRow = personTableBody.insertRow(-1)
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    personTableBodyCell.innerHTML = soldier['RankShort']
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    personTableBodyCell.innerHTML = soldier['LastName']
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    personTableBodyCell.innerHTML = soldier['UnitAssigned']
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (soldier['parsedLastApft'] !== undefined) {
+      personTableBodyCell.innerHTML = soldier['parsedLastApft'].toFormat('MM/dd/yyyy')
+    }
+
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (soldier['Score'] !== undefined) {
+      personTableBodyCell.innerHTML = soldier['Score']
+    }
+  })
+  // after the first load, the table sorter does not load
+  $("#personTable").tablesorter({
+    theme: 'bootstrap',
+    sortReset: true,
+    sortRestart: true,
+  })
+  $("#personTable").trigger("updateAll")
+}
+
+function getSoldierListDueWithin30Days (soldierList) {
+  // get all Soldiers in the unit with an APFT that is less than 6 months old
+  let soldierListDueWithin30Days = []
+  soldierList.forEach(function (soldier) {
+    if (soldier['parsedLastApft'] === undefined || soldier['parsedLastApft'].plus({ months: 5 }) <= luxon.DateTime.local()) {
+      soldierListDueWithin30Days.push(soldier)
+    }
+  })
+  return soldierListDueWithin30Days
+}
+
+function getSoldierListWithValidApft (soldierList) {
+  // get all Soldiers in the unit with an APFT that is less than 6 months old
+  let soldierListWithValidApft = []
+  soldierList.forEach(function (soldier) {
+    if (soldier['parsedLastApft'] !== undefined) {
+      if (soldier['parsedLastApft'].plus({ months: 6 }) >= luxon.DateTime.local()) {
+        soldierListWithValidApft.push(soldier)
+      }
+    }
+  })
+  return soldierListWithValidApft
+}
+
+function getSoldiersWithValidApft (soldierList) {
+  // get all Soldiers in the unit with an APFT that is less than 6 months old
+  let numValidApft = 0
+  soldierList.forEach(function (soldier) {
+    if (soldier['parsedLastApft'] !== undefined) {
+      if (soldier['parsedLastApft'].plus({ months: 6 }) >= luxon.DateTime.local()) {
+        numValidApft += 1
+      }
+    }
+  })
+  return numValidApft
+}
+
+function getSoldiersDueWithin30Days (soldierList) {
+  // get all Soldiers in the unit with an APFT that is less than 6 months old
+  let numDueWithin30Days = 0
+  soldierList.forEach(function (soldier) {
+    if (soldier['parsedLastApft'] === undefined || soldier['parsedLastApft'].plus({ months: 5 }) <= luxon.DateTime.local()) {
+      numDueWithin30Days += 1
+    }
+  })
+  return numDueWithin30Days
+}
+
+function getTotalSoldierList (soldierList) {
+  let totalSoldierList = []
+  soldierList.forEach(function (soldier) {
+    totalSoldierList.push(soldier)
+  })
+  return totalSoldierList
+}
+
+function getTotalSoldiers (soldierList) {
+  let numSoldiers = 0
+  soldierList.forEach(function (soldier) {
+    numSoldiers += 1
+  })
+  return numSoldiers
+}
+
+function getNumAltEvents (soldierList) {
+  let numAlt = 0
+  soldierList.forEach(function (soldier) {
+    if (soldier['IsAlternative'] === 'TRUE') {
+      numAlt += 1
+    }
+  })
+  return numAlt
+}
+
+function getScoreAverage (soldierList) {
+  let puScore = getPUScoreAverage(soldierList)
+  let suScore = getSUScoreAverage(soldierList)
+  let runScore = getRunScoreAverage(soldierList)
+  let average = puScore + suScore + runScore
+  return average
+}
+
+function getPUScoreAverage (soldierList) {
+  let totalScore = 0
+  let numberSoldiers = 0
+  let average = 0
+  soldierList.forEach(function (soldier) {
+    if (parseInt(soldier['PushupScore']) > 0) {
+      totalScore += parseInt(soldier['PushupScore'])
+      numberSoldiers += 1
+    }
+  })
+  average = totalScore/numberSoldiers
+  return average
+}
+
+function getSUScoreAverage (soldierList) {
+  let totalScore = 0
+  let numberSoldiers = 0
+  let average = 0
+  soldierList.forEach(function (soldier) {
+    if (parseInt(soldier['SitupScore']) > 0) {
+      totalScore += parseInt(soldier['SitupScore'])
+      numberSoldiers += 1
+    }
+  })
+  average = totalScore/numberSoldiers
+  return average
+}
+
+function getRunScoreAverage (soldierList) {
+  let totalScore = 0
+  let numberSoldiers = 0
+  let average = 0
+  soldierList.forEach(function (soldier) {
+    if (parseInt(soldier['RunScore']) > 0) {
+      totalScore += parseInt(soldier['RunScore'])
+      numberSoldiers += 1
+    }
+  })
+  average = totalScore/numberSoldiers
+  return average
+}
+
+// by team, by person
+$('#displayApftStats').on('click', function () {
+  // this function will build the html table to show the training data
+  generateApftTable(dtmsUnits)
+  $("#apftComplianceTable").tablesorter({
+    theme: 'bootstrap',
+    sortReset: true,
+    sortRestart: true,
+  })
+  $("#apftComplianceTable").trigger("updateAll")
+
+})
+
+// SORT FUNCTIONS 
+function sortByUnit (sort_file) {
+  // sort by the unit
+  sort_file.sort( function(a, b) {
+    return (a.unit.localeCompare(b.unit))
+  })
+  return sort_file
+}
+
+function unitExists(unitName) {
+  return dtmsUnits.some(function(el) {
+    return el.unit === unitName
+  })  
+}
+</script>
+</body>
+</html>
