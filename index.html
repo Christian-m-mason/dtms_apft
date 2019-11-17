@@ -44,9 +44,16 @@ $('#dtmsPersReportXslx').on('change', function(event) {
   var dtmsPersReportFile = event.target.files[0]
   var reader = new FileReader()
   reader.onload = function (e) {
-    var data = e.target.result
-    var workbook = XLSX.read(data, {
-      type: 'binary'
+    var binary = ""
+    var bytes = new Uint8Array(e.target.result)
+    var length = bytes.byteLength
+    for (var i = 0; i < length; i += 1) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    //var data = e.target.result
+    var workbook = XLSX.read(binary, { 
+      type: 'binary', 
+      cellDates: true,
     })
     dtmsPersReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
 
@@ -55,7 +62,7 @@ $('#dtmsPersReportXslx').on('change', function(event) {
   reader.onerror = function (ex) {
     console.log(ex)
   }
-  reader.readAsBinaryString(dtmsPersReportFile)
+  reader.readAsArrayBuffer(dtmsPersReportFile)
 })
 
 // this contains personnel apft records
@@ -63,18 +70,23 @@ $('#dtmsApftReportXslx').on('change', function(event) {
   var dtmsApftReportFile = event.target.files[0]
   var reader = new FileReader()
   reader.onload = function (e) {
-    var data = e.target.result
-    var workbook = XLSX.read(data, {
-      type: 'binary'
+    binary = ""
+    bytes = new Uint8Array(e.target.result)
+    length = bytes.byteLength
+    for (var i = 0; i < length; i += 1) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    workbook = XLSX.read(binary, {
+      type: 'binary',
+      cellDates: true,
     })
     dtmsApftReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
     // sort by date trained and remove duplicate person entries from the tng report
     // only interested in the latest date trained
 
     dtmsApftReport.forEach(function(apftRecord) {
-      dateData = apftRecord['LastApft'].split('/')
-      apftDate = new DateTime.utc(parseInt('20' + dateData[2]), parseInt(dateData[0]), parseInt(dateData[1]))
-      apftRecord['parsedLastApft'] = apftDate
+      // make the parsedLastApft a luxon date object
+      apftRecord['parsedLastApft'] = DateTime.fromJSDate(apftRecord['LastApft'])
     })
 
     // add the apft records to the dtmsUnits data structure
@@ -83,7 +95,7 @@ $('#dtmsApftReportXslx').on('change', function(event) {
   reader.onerror = function (ex) {
     console.log(ex)
   }
-  reader.readAsBinaryString(dtmsApftReportFile)
+  reader.readAsArrayBuffer(dtmsApftReportFile)
 })
 
 // addApftToUnits to add apft stats to the unit
@@ -91,7 +103,7 @@ function addApftToUnits (dtmsUnits, dtmsApftReport) {
   dtmsApftReport.forEach(function (apftRecord) {
     dtmsUnits.forEach(function (unitRecord) {
       unitRecord['soldierList'].forEach(function (soldier) {
-        if (soldier['UnitAssigned'] === apftRecord['UnitAssigned'] && apftRecord['ForRecord'] === 'TRUE' && soldier['LastName'] === apftRecord['LastName'] && soldier['Last4'] === apftRecord['Last4']) {
+        if (soldier['UnitAssigned'] === apftRecord['UnitAssigned'] && apftRecord['ForRecord'] === true && soldier['LastName'] === apftRecord['LastName'] && soldier['Last4'] === apftRecord['Last4']) {
           soldier['Age'] = apftRecord['Age']
           soldier['ForRecord'] = apftRecord['ForRecord']
           soldier['IsAlternative'] = apftRecord['IsAlternative']
@@ -451,7 +463,7 @@ function getTotalSoldiers (soldierList) {
 function getNumAltEvents (soldierList) {
   let numAlt = 0
   soldierList.forEach(function (soldier) {
-    if (soldier['IsAlternative'] === 'TRUE') {
+    if (soldier['IsAlternative'] === true) {
       numAlt += 1
     }
   })
