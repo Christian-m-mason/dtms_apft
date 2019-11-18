@@ -18,8 +18,10 @@ Select the "Grid Reports" tab and the "Unit APFT Roster Report"
 
 Export the information to Excel
 
-
-
-
 Import to dtms_apft to gain better understanding of the unit's APFT scores and who needs to take an APFT.
+
+
+Import files from Excel
+
+Create list of Soldiers / Civilians that have training
 
