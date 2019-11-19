@@ -450,7 +450,10 @@ function getEventScoreAverage (soldierList, eventType) {
     .reduce(addScores, initialInfo)
 
   const {totalScore, scoreCount} = scoreInfo
-  const averageScore = totalScore / scoreCount
+  let averageScore = totalScore / scoreCount
+  if (isNaN(averageScore)) {
+    averageScore = 0
+  }
   return averageScore
 }
 
