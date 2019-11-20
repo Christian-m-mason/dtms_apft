@@ -4,6 +4,7 @@
   <link rel="stylesheet" href="css/bootstrap.min.css">
   <link rel="stylesheet" href="css/index.css">
   <link rel="stylesheet" href="css/theme.bootstrap_4.css">
+  <link rel="stylesheet" href="css/datepicker.min.css">
 </head>
 <body>
 
@@ -18,11 +19,15 @@
 </div>
 
 <div class="form-group">
+  <label for="apftComplianceDate">Choose the date to calculate the APFT stats off of</label>
+  <input id="apftComplianceDate" type="text" placeholder="" />
+  </br>
   <button id="displayApftStats" type="button" class="btn btn-primary btn-lg">Display APFT Statistics</button>
 </div>
 
 <table id="apftComplianceTable" class="table table-dark table-bordered tablesorter" > </table> 
 <table id="personTable" class="table table-dark table-bordered" > </table> 
+
 
 <script src="js/jquery-3.4.1.min.js"></script>
 <script src="js/jquery.csv.min.js"></script>
@@ -31,11 +36,23 @@
 <script src="js/xlsx.js"></script>
 <script src="js/d3.v5.min.js"></script>
 <script src="js/jquery.tablesorter.min.js"></script>
+<script src="js/datepicker.min.js"></script>
 
 <script>
 var DateTime = luxon.DateTime
 var dtmsPersReport = []
 var dtmsApftReport = []
+
+
+
+let apftComplianceDate = document.getElementById('apftComplianceDate')
+
+const apftComplianceDatePicker= datepicker(apftComplianceDate, {
+  formatter: (input, date, instance) => {
+    const value = date.toISOString().slice(0,10)
+    apftComplianceDate.value = value 
+  }
+})
 
 // create the dtmsPersReport from the Xslx file
 // this is the personnel report from DTMS
@@ -147,6 +164,14 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
 
   let apftTableBody = document.createElement('tbody')
 
+  let apftComplianceDate = document.getElementById('apftComplianceDate').value
+  let apftComplianceDateParsed = ''
+  if (apftComplianceDate == undefined || apftComplianceDate === '') {
+    apftComplianceDateParsed = luxon.DateTime.local()
+  } else {
+    apftComplianceDateParsed = luxon.DateTime.fromISO(apftComplianceDate)
+  }
+
   // get the list of units from the dtmsPersReport
 
   // use the 'UnitAttached' if exists, then use the 'UnitAssigned'
@@ -160,7 +185,7 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
 
     // first, make the list of all Soldiers in the unit, then find their apft scores, it is ok if a Soldier doesn't have a pt score, just print blank
 
-    let soldierList = dtmsPersReport.filter(getUnitSoldierList, unit)
+    let soldierList = dtmsPersReport.filter(getUnitSoldierList, { unit: unit })
 
     // make another function to enrich the 'soldierList' with apft data
 
@@ -174,15 +199,16 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    let completeApft = soldierList.filter(isSoldierCurrentApft).length
-    let requiredApft = soldierList.length
-    apftTableCell.innerHTML = `${Math.round(completeApft*100/requiredApft)}% (${completeApft} / ${requiredApft})`;
+    let completeApft = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
+    let numCompleteApft = completeApft.length
+    let numRequiredApft = soldierList.length
+    apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
     apftTableCell.setAttribute('data-unit',unit)
     apftTableCell.setAttribute('data-column','current')
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = soldierList.filter(isSoldierDueWithin30Days).length.toString()
+    apftTableCell.innerHTML = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
     apftTableCell.setAttribute('data-unit',unit)
     apftTableCell.setAttribute('data-column','dueWithin30Days')
     apftTableCell.onclick = cellClickHandler
@@ -194,20 +220,20 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = Math.round(getEventScoreAverage(soldierList, 'PushupScore')).toString()
+    apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'PushupScore')).toString()
     apftTableCell.setAttribute('data-unit',unit)
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = Math.round(getEventScoreAverage(soldierList, 'SitupScore')).toString()
+    apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'SitupScore')).toString()
     apftTableCell.setAttribute('data-unit',unit)
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = Math.round(getEventScoreAverage(soldierList, 'RunScore')).toString()
+    apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'RunScore')).toString()
     apftTableCell.setAttribute('data-unit',unit)
 
     // to calculate the average score, sum the averages
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = Math.round(getScoreAverage(soldierList)).toString()
+    apftTableCell.innerHTML = Math.round(getScoreAverage(completeApft)).toString()
     apftTableCell.setAttribute('data-unit',unit)
   })
 
@@ -225,15 +251,16 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   apftTableCell.onclick = cellClickHandler
 
   apftTableCell = apftTableRow.insertCell(-1)
-  completeApft = allSoldiers.filter(isSoldierCurrentApft).length
-  requiredApft = allSoldiers.length
-  apftTableCell.innerHTML = `${Math.round(completeApft*100/requiredApft)}% (${completeApft} / ${requiredApft})`;
+  completeApft = allSoldiers.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
+  numCompleteApft = completeApft.length
+  numRequiredApft = allSoldiers.length
+  apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
   apftTableCell.setAttribute('data-unit','All')
   apftTableCell.setAttribute('data-column','current')
   apftTableCell.onclick = cellClickHandler
 
   apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = allSoldiers.filter(isSoldierDueWithin30Days).length.toString()
+  apftTableCell.innerHTML = allSoldiers.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
   apftTableCell.setAttribute('data-unit','All')
   apftTableCell.setAttribute('data-column','dueWithin30Days')
   apftTableCell.onclick = cellClickHandler
@@ -245,20 +272,20 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   apftTableCell.onclick = cellClickHandler
 
   apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(allSoldiers, 'PushupScore')).toString()
+  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'PushupScore')).toString()
   apftTableCell.setAttribute('data-unit','All')
 
   apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(allSoldiers, 'SitupScore')).toString()
+  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'SitupScore')).toString()
   apftTableCell.setAttribute('data-unit','All')
 
   apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(allSoldiers, 'RunScore')).toString()
+  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'RunScore')).toString()
   apftTableCell.setAttribute('data-unit','All')
 
   // to calculate the average score, sum the averages
   apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getScoreAverage(allSoldiers)).toString()
+  apftTableCell.innerHTML = Math.round(getScoreAverage(completeApft)).toString()
   apftTableCell.setAttribute('data-unit','All')
 
   apftTable.appendChild(apftTableBody)
@@ -310,16 +337,25 @@ function addApftRecordData (soldierRecord) {
 function cellClickHandler (e) {
   let unitText = e.srcElement.getAttribute('data-unit')
   let columnText = e.srcElement.getAttribute('data-column')
+
+  let apftComplianceDate = document.getElementById('apftComplianceDate').value
+  let apftComplianceDateParsed = ''
+  if (apftComplianceDate == undefined || apftComplianceDate === '') {
+    apftComplianceDateParsed = luxon.DateTime.local()
+  } else {
+    apftComplianceDateParsed = luxon.DateTime.fromISO(apftComplianceDate)
+  }
+
   let soldierList = []
   if (unitText === 'All') {
     soldierList = dtmsPersReport
   } else {
-    soldierList = dtmsPersReport.filter(getUnitSoldierList, unitText)
+    soldierList = dtmsPersReport.filter(getUnitSoldierList, { unit: unitText })
   }
 
   // check to see what column of data is requested
   if (columnText === 'dueWithin30Days') {
-    soldierList = soldierList.filter(isSoldierDueWithin30Days)
+    soldierList = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed })
   } else if (columnText === 'current') {
     soldierList = soldierList.filter(isSoldierCurrentApft)
   } else if (columnText === 'altEvent') {
@@ -395,19 +431,19 @@ function getUnitSoldierList (persRecord) {
   // check to see if the soldier is attached to the unit, if attached to a unit, then he should not be listed on the 'assigned' roster
   try {
     if (persRecord['UnitAttached'].length > 0) {
-      return persRecord['UnitAttached'] === this.toString()
+      return persRecord['UnitAttached'] === this.unit.toString()
     }
   } catch (e) {
   }
-  return persRecord['UnitAssigned'] === this.toString()
+  return persRecord['UnitAssigned'] === this.unit.toString()
 }
 
 function isSoldierDueWithin30Days (apftRecord) {
-  return (apftRecord['parsedLastApft'] === undefined || apftRecord['parsedLastApft'].plus({ months: 5 }) <= luxon.DateTime.local())
+  return (apftRecord['parsedLastApft'] === undefined || apftRecord['parsedLastApft'].plus({ months: 5 }) <= this.projectedDate)
 }
 
 function isSoldierCurrentApft (apftRecord) {
-  return ((apftRecord['parsedLastApft'] !== undefined) && (apftRecord['parsedLastApft'].plus({ months: 6 }) >= luxon.DateTime.local()))
+  return ((apftRecord['parsedLastApft'] !== undefined) && (apftRecord['parsedLastApft'].plus({ months: 6 }) >= this.projectedDate))
 }
 
 function isAltEvent (apftRecord) {
