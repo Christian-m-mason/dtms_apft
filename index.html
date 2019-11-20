@@ -357,7 +357,7 @@ function cellClickHandler (e) {
   if (columnText === 'dueWithin30Days') {
     soldierList = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed })
   } else if (columnText === 'current') {
-    soldierList = soldierList.filter(isSoldierCurrentApft)
+    soldierList = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed } )
   } else if (columnText === 'altEvent') {
     soldierList = soldierList.filter(isAltEvent)
   } else {
