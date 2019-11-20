@@ -25,7 +25,7 @@
   <button id="displayApftStats" type="button" class="btn btn-primary btn-lg">Display APFT Statistics</button>
 </div>
 
-<table id="apftComplianceTable" class="table table-dark table-bordered tablesorter" > </table> 
+<table id="apftComplianceTable" class="table table-dark table-bordered" > </table> 
 <table id="personTable" class="table table-dark table-bordered" > </table> 
 
 
@@ -145,6 +145,9 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   apftTableHeadCell.innerHTML = 'Complete/Req'
 
   apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Expired'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
   apftTableHeadCell.innerHTML = 'Due within 30 days'
 
   apftTableHeadCell = apftTableHeadRow.insertCell(-1)
@@ -200,11 +203,18 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
 
     apftTableCell = apftTableRow.insertCell(-1)
     let completeApft = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
+    let notCompleteApft = soldierList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed })
     let numCompleteApft = completeApft.length
     let numRequiredApft = soldierList.length
     apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
     apftTableCell.setAttribute('data-unit',unit)
     apftTableCell.setAttribute('data-column','current')
+    apftTableCell.onclick = cellClickHandler
+
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = notCompleteApft.length.toString()
+    apftTableCell.setAttribute('data-unit',unit)
+    apftTableCell.setAttribute('data-column','expired')
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
@@ -252,11 +262,18 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
 
   apftTableCell = apftTableRow.insertCell(-1)
   completeApft = allSoldiers.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
+  notCompleteApft = allSoldiers.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed })
   numCompleteApft = completeApft.length
   numRequiredApft = allSoldiers.length
   apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
   apftTableCell.setAttribute('data-unit','All')
   apftTableCell.setAttribute('data-column','current')
+  apftTableCell.onclick = cellClickHandler
+
+  apftTableCell = apftTableRow.insertCell(-1)
+  apftTableCell.innerHTML = notCompleteApft.length.toString()
+  apftTableCell.setAttribute('data-unit','All')
+  apftTableCell.setAttribute('data-column','expired')
   apftTableCell.onclick = cellClickHandler
 
   apftTableCell = apftTableRow.insertCell(-1)
@@ -358,6 +375,8 @@ function cellClickHandler (e) {
     soldierList = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed })
   } else if (columnText === 'current') {
     soldierList = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed } )
+  } else if (columnText === 'expired') {
+    soldierList = soldierList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed } )
   } else if (columnText === 'altEvent') {
     soldierList = soldierList.filter(isAltEvent)
   } else {
@@ -444,6 +463,10 @@ function isSoldierDueWithin30Days (apftRecord) {
 
 function isSoldierCurrentApft (apftRecord) {
   return ((apftRecord['parsedLastApft'] !== undefined) && (apftRecord['parsedLastApft'].plus({ months: 6 }) >= this.projectedDate))
+}
+
+function isSoldierExpiredApft (apftRecord) {
+  return ((apftRecord['parsedLastApft'] === undefined) || (apftRecord['parsedLastApft'].plus({ months: 6 }) < this.projectedDate))
 }
 
 function isAltEvent (apftRecord) {
