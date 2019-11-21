@@ -183,6 +183,9 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   // sort the units alphabetically
   dtmsUnitArray.sort()
 
+  // add the 'All' group to the dtmsUnitArray to show stats for all Soldiers
+  dtmsUnitArray.push('All')
+
   dtmsUnitArray.forEach(function (unit) {
     // on the export, do all Soldiers have records?
 
@@ -246,64 +249,6 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     apftTableCell.innerHTML = Math.round(getScoreAverage(completeApft)).toString()
     apftTableCell.setAttribute('data-unit',unit)
   })
-
-  // generate stats for all Soldiers
-
-  // need to make a 'getSoldiers' function that returns the apft records for all Soldiers in the unit
-  let allSoldiers = dtmsPersReport
-
-  // make a row that has the totals
-  apftTableRow = apftTableBody.insertRow(-1)
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = 'All'
-  apftTableCell.setAttribute('data-unit','All')
-  apftTableCell.setAttribute('data-column','unit')
-  apftTableCell.onclick = cellClickHandler
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  completeApft = allSoldiers.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
-  notCompleteApft = allSoldiers.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed })
-  numCompleteApft = completeApft.length
-  numRequiredApft = allSoldiers.length
-  apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
-  apftTableCell.setAttribute('data-unit','All')
-  apftTableCell.setAttribute('data-column','current')
-  apftTableCell.onclick = cellClickHandler
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = notCompleteApft.length.toString()
-  apftTableCell.setAttribute('data-unit','All')
-  apftTableCell.setAttribute('data-column','expired')
-  apftTableCell.onclick = cellClickHandler
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = allSoldiers.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
-  apftTableCell.setAttribute('data-unit','All')
-  apftTableCell.setAttribute('data-column','dueWithin30Days')
-  apftTableCell.onclick = cellClickHandler
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = allSoldiers.filter(isAltEvent).length.toString()
-  apftTableCell.setAttribute('data-unit','All')
-  apftTableCell.setAttribute('data-column','altEvent')
-  apftTableCell.onclick = cellClickHandler
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'PushupScore')).toString()
-  apftTableCell.setAttribute('data-unit','All')
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'SitupScore')).toString()
-  apftTableCell.setAttribute('data-unit','All')
-
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getEventScoreAverage(completeApft, 'RunScore')).toString()
-  apftTableCell.setAttribute('data-unit','All')
-
-  // to calculate the average score, sum the averages
-  apftTableCell = apftTableRow.insertCell(-1)
-  apftTableCell.innerHTML = Math.round(getScoreAverage(completeApft)).toString()
-  apftTableCell.setAttribute('data-unit','All')
 
   apftTable.appendChild(apftTableBody)
 }
@@ -447,6 +392,10 @@ function displayPersonList (soldierList) {
 }
 
 function getUnitSoldierList (persRecord) {
+  // check to see if the unit selector is set to 'All', if yes then send back every record
+  if (this.unit.toString() === 'All') {
+    return true
+  }
   // check to see if the soldier is attached to the unit, if attached to a unit, then he should not be listed on the 'assigned' roster
   try {
     if (persRecord['UnitAttached'].length > 0) {
