@@ -19,6 +19,11 @@
 </div>
 
 <div class="form-group">
+  <label for="dtmsHWReportXslx">Choose the DTMS HW report to process</label>
+  <input type="file" id="dtmsHWReportXslx" name="dtmsHWReportXslx"/>
+</div>
+
+<div class="form-group">
   <label for="apftComplianceDate">Choose the date to calculate the APFT stats off of</label>
   <input id="apftComplianceDate" type="text" placeholder="" />
   </br>
@@ -27,7 +32,6 @@
 
 <table id="apftComplianceTable" class="table table-dark table-bordered" > </table> 
 <table id="personTable" class="table table-dark table-bordered" > </table> 
-
 
 <script src="js/jquery-3.4.1.min.js"></script>
 <script src="js/jquery.csv.min.js"></script>
@@ -42,8 +46,7 @@
 var DateTime = luxon.DateTime
 var dtmsPersReport = []
 var dtmsApftReport = []
-
-
+var dtmsHWReport = []
 
 let apftComplianceDate = document.getElementById('apftComplianceDate')
 
@@ -106,13 +109,58 @@ $('#dtmsApftReportXslx').on('change', function(event) {
   reader.readAsArrayBuffer(dtmsApftReportFile)
 })
 
+// this contains personnel hw records
+$('#dtmsHWReportXslx').on('change', function(event) {
+  var dtmsHWReportFile = event.target.files[0]
+  var reader = new FileReader()
+  reader.onload = function (e) {
+    binary = ""
+    bytes = new Uint8Array(e.target.result)
+    length = bytes.byteLength
+    for (var i = 0; i < length; i += 1) {
+      binary += String.fromCharCode(bytes[i])
+    }
+    workbook = XLSX.read(binary, {
+      type: 'binary',
+      cellDates: true,
+    })
+    dtmsHWReport = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]]);
+
+    dtmsHWReport = dtmsHWReport.map(setParsedHWDate)
+  }
+  reader.onerror = function (ex) {
+    console.log(ex)
+  }
+  reader.readAsArrayBuffer(dtmsHWReportFile)
+})
+
 function setParsedLastApft(apftRecord) {
   apftRecord['parsedLastApft'] = DateTime.fromJSDate(apftRecord['LastApft'])
   return apftRecord
 }
 
+function setParsedHWDate(hwRecord) {
+  hwRecord['parsedHWDate'] = DateTime.fromJSDate(hwRecord['HeightWeightDate'])
+  return hwRecord
+}
+
 function removeDACivilians (record) {
   return record['RankShort'].indexOf('GS') === -1
+}
+
+function getUnits (persRecord) {
+  if (persRecord['UnitAttached'] !== undefined && persRecord['UnitAttached'].length > 0) {
+    return persRecord['UnitAttached'] 
+  } else {
+    return persRecord['UnitAssigned'] 
+  }
+}
+
+function getUniqueValues (valueArray, valueRecord) {
+  if (!valueArray.includes(valueRecord)) {
+    valueArray.push(valueRecord)
+  }
+  return valueArray
 }
 
 function getDTMSUnits (units, record) {
@@ -129,7 +177,7 @@ function getDTMSUnits (units, record) {
   return units
 }
 
-function generateApftTable (dtmsPersReport, dtmsApftReport) {
+function generateApftTable () {
   let apftTable = document.getElementById('apftComplianceTable') 
 
   while(apftTable.hasChildNodes()) {
@@ -165,6 +213,12 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   apftTableHeadCell = apftTableHeadRow.insertCell(-1)
   apftTableHeadCell.innerHTML = 'Average Score'
 
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'Expired HW'
+
+  apftTableHeadCell = apftTableHeadRow.insertCell(-1)
+  apftTableHeadCell.innerHTML = 'HW Due within 30 days'
+
   let apftTableBody = document.createElement('tbody')
 
   let apftComplianceDate = document.getElementById('apftComplianceDate').value
@@ -178,10 +232,10 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
   // get the list of units from the dtmsPersReport
 
   // use the 'UnitAttached' if exists, then use the 'UnitAssigned'
-  let dtmsUnitArray = dtmsPersReport.reduce(getDTMSUnits,[])
-
   // sort the units alphabetically
-  dtmsUnitArray.sort()
+  let dtmsUnitArray = dtmsPersReport.map(getUnits)
+    .reduce(getUniqueValues,[])
+    .sort()
 
   // add the 'All' group to the dtmsUnitArray to show stats for all Soldiers
   dtmsUnitArray.push('All')
@@ -192,10 +246,9 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     // first, make the list of all Soldiers in the unit, then find their apft scores, it is ok if a Soldier doesn't have a pt score, just print blank
 
     let soldierList = dtmsPersReport.filter(getUnitSoldierList, { unit: unit })
-
-    // make another function to enrich the 'soldierList' with apft data
-
-    soldierList = soldierList.map(addApftRecordData)
+    let persKeyArray = soldierList.reduce(genLastNameLast4Keys,[])
+    let apftList = dtmsApftReport.filter(getRecordForList,{ persKeyArray: persKeyArray })
+    let hwList = dtmsHWReport.filter(getRecordForList,{ persKeyArray: persKeyArray })
 
     apftTableRow = apftTableBody.insertRow(-1)
     apftTableCell = apftTableRow.insertCell(-1)
@@ -205,29 +258,30 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    let completeApft = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
-    let notCompleteApft = soldierList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed })
+    let completeApft = apftList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed })
+    let notCompleteApft = apftList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed })
+    let notCompleteHw = hwList.filter(isSoldierExpiredHw, { projectedDate: apftComplianceDateParsed })
     let numCompleteApft = completeApft.length
     let numRequiredApft = soldierList.length
     apftTableCell.innerHTML = `${Math.round(numCompleteApft*100/numRequiredApft)}% (${numCompleteApft} / ${numRequiredApft})`;
     apftTableCell.setAttribute('data-unit',unit)
-    apftTableCell.setAttribute('data-column','current')
+    apftTableCell.setAttribute('data-column','currentApft')
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
     apftTableCell.innerHTML = notCompleteApft.length.toString()
     apftTableCell.setAttribute('data-unit',unit)
-    apftTableCell.setAttribute('data-column','expired')
+    apftTableCell.setAttribute('data-column','expiredApft')
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
+    apftTableCell.innerHTML = apftList.filter(isSoldierDueApftWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
     apftTableCell.setAttribute('data-unit',unit)
-    apftTableCell.setAttribute('data-column','dueWithin30Days')
+    apftTableCell.setAttribute('data-column','dueApftWithin30Days')
     apftTableCell.onclick = cellClickHandler
 
     apftTableCell = apftTableRow.insertCell(-1)
-    apftTableCell.innerHTML = soldierList.filter(isAltEvent).length.toString()
+    apftTableCell.innerHTML = apftList.filter(isAltEvent).length.toString()
     apftTableCell.setAttribute('data-unit',unit)
     apftTableCell.setAttribute('data-column','altEvent')
     apftTableCell.onclick = cellClickHandler
@@ -248,6 +302,20 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
     apftTableCell = apftTableRow.insertCell(-1)
     apftTableCell.innerHTML = Math.round(getScoreAverage(completeApft)).toString()
     apftTableCell.setAttribute('data-unit',unit)
+    
+    // due now for hw
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = notCompleteHw.length.toString()
+    apftTableCell.setAttribute('data-unit',unit)
+    apftTableCell.setAttribute('data-column','dueHw')
+    apftTableCell.onclick = cellClickHandler
+
+    // due within 30 days for hw
+    apftTableCell = apftTableRow.insertCell(-1)
+    apftTableCell.innerHTML = hwList.filter(isSoldierDueHwWithin30Days, { projectedDate: apftComplianceDateParsed }).length.toString()
+    apftTableCell.setAttribute('data-unit',unit)
+    apftTableCell.setAttribute('data-column','dueHwWithin30Days')
+    apftTableCell.onclick = cellClickHandler
   })
 
   apftTable.appendChild(apftTableBody)
@@ -255,45 +323,6 @@ function generateApftTable (dtmsPersReport, dtmsApftReport) {
 
 function getSoldierApftRecord (apftRecord) {
   return (apftRecord['Last4'] === this['Last4'] && apftRecord['LastName'] === this['LastName'])
-}
-
-// only pull data from the dtmsApftReport that is needed for the apft record
-function addApftRecordData (soldierRecord) {
-  // check to see if there is any soldier data in the dtmsApftReport
-  let soldierApftRecord = dtmsApftReport.filter(getSoldierApftRecord, { Last4: soldierRecord['Last4'], LastName: soldierRecord['LastName'] })
-  // for now, assume that the first record found is the only record, use the most recent record in the future
-  if (soldierApftRecord.length > 0) {
-    soldierRecord['Age'] = soldierApftRecord[0]['Age']
-    soldierRecord['ForRecord'] = soldierApftRecord[0]['ForRecord']
-    soldierRecord['IsAlternative'] = soldierApftRecord[0]['IsAlternative']
-    soldierRecord['LastApft'] = soldierApftRecord[0]['LastApft']
-    soldierRecord['PassFail'] = soldierApftRecord[0]['PassFail']
-    soldierRecord['PushupRaw'] = soldierApftRecord[0]['PushupRaw']
-    soldierRecord['PushupScore'] = soldierApftRecord[0]['PushupScore']
-    soldierRecord['RawRun'] = soldierApftRecord[0]['RawRun']
-    soldierRecord['RunScore'] = soldierApftRecord[0]['RunScore']
-    soldierRecord['Score'] = soldierApftRecord[0]['Score']
-    soldierRecord['Sex'] = soldierApftRecord[0]['Sex']
-    soldierRecord['SitupRaw'] = soldierApftRecord[0]['SitupRaw']
-    soldierRecord['SitupScore'] = soldierApftRecord[0]['SitupScore']
-    soldierRecord['parsedLastApft'] = soldierApftRecord[0]['parsedLastApft']
-  } else {
-    soldierRecord['Age'] = ''
-    soldierRecord['ForRecord'] = false
-    soldierRecord['IsAlternative'] = ''
-    soldierRecord['LastApft'] = ''
-    soldierRecord['PassFail'] = ''
-    soldierRecord['PushupRaw'] = ''
-    soldierRecord['PushupScore'] = 0
-    soldierRecord['RawRun'] = ''
-    soldierRecord['RunScore'] = 0
-    soldierRecord['Score'] = ''
-    soldierRecord['Sex'] = ''
-    soldierRecord['SitupRaw'] = ''
-    soldierRecord['SitupScore'] = 0
-    soldierRecord['parsedLastApft'] = ''
-  }
-  return soldierRecord
 }
 
 function cellClickHandler (e) {
@@ -309,23 +338,33 @@ function cellClickHandler (e) {
   }
 
   let soldierList = []
+  let apftList = []
+  let hwList = []
   if (unitText === 'All') {
-    soldierList = dtmsPersReport
+    apftList = dtmsApftReport
+    hwList = dtmsHWReport
   } else {
     soldierList = dtmsPersReport.filter(getUnitSoldierList, { unit: unitText })
+    let persKeyArray = soldierList.reduce(genLastNameLast4Keys,[])
+    apftList = dtmsApftReport.filter(getRecordForList,{ persKeyArray: persKeyArray })
+    hwList = dtmsHWReport.filter(getRecordForList,{ persKeyArray: persKeyArray })
   }
 
   // check to see what column of data is requested
-  if (columnText === 'dueWithin30Days') {
-    soldierList = soldierList.filter(isSoldierDueWithin30Days, { projectedDate: apftComplianceDateParsed })
-  } else if (columnText === 'current') {
-    soldierList = soldierList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed } )
-  } else if (columnText === 'expired') {
-    soldierList = soldierList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed } )
+  if (columnText === 'dueApftWithin30Days') {
+    soldierList = apftList.filter(isSoldierDueApftWithin30Days, { projectedDate: apftComplianceDateParsed })
+  } else if (columnText === 'currentApft') {
+    soldierList = apftList.filter(isSoldierCurrentApft, { projectedDate: apftComplianceDateParsed } )
+  } else if (columnText === 'expiredApft') {
+    soldierList = apftList.filter(isSoldierExpiredApft, { projectedDate: apftComplianceDateParsed } )
   } else if (columnText === 'altEvent') {
-    soldierList = soldierList.filter(isAltEvent)
+    soldierList = apftList.filter(isAltEvent)
+  } else if (columnText === 'dueHw') {
+    soldierList = hwList.filter(isSoldierExpiredHw, { projectedDate: apftComplianceDateParsed })
+  } else if (columnText === 'dueHwWithin30Days') {
+    soldierList = hwList.filter(isSoldierDueHwWithin30Days, { projectedDate: apftComplianceDateParsed })
   } else {
-    soldierList = soldierList
+    soldierList = dtmsPersReport
   }
   displayPersonList(soldierList)
 }
@@ -354,6 +393,15 @@ function displayPersonList (soldierList) {
   personTableHeaderCell = personTableHeaderRow.insertCell(-1)
   personTableHeaderCell.innerHTML = 'Score'
 
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'HW Date'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'HW Pass'
+
+  personTableHeaderCell = personTableHeaderRow.insertCell(-1)
+  personTableHeaderCell.innerHTML = 'BF Pass'
+
   let personTableBody = document.createElement('tbody')
   personTable.appendChild(personTableBody)
 
@@ -361,6 +409,10 @@ function displayPersonList (soldierList) {
   let personTableBodyCell
 
   soldierList.forEach(function (soldier) {
+    let personHash = soldier['LastName'] + "|" + soldier['Last4'] 
+    let apftRecord = dtmsApftReport.filter(getPersonRecord,{ personHash: personHash })
+    let hwRecord = dtmsHWReport.filter(getPersonRecord,{ personHash: personHash })
+
     personTableBodyRow = personTableBody.insertRow(-1)
 
     personTableBodyCell = personTableBodyRow.insertCell(-1)
@@ -373,13 +425,31 @@ function displayPersonList (soldierList) {
     personTableBodyCell.innerHTML = soldier['UnitAssigned']
 
     personTableBodyCell = personTableBodyRow.insertCell(-1)
-    if (soldier['parsedLastApft'] !== undefined) {
-      personTableBodyCell.innerHTML = soldier['parsedLastApft'].toFormat('MM/dd/yyyy')
+    if (apftRecord.length > 0) {
+      personTableBodyCell.innerHTML = apftRecord[0]['parsedLastApft'].toFormat('MM/dd/yyyy')
     }
 
     personTableBodyCell = personTableBodyRow.insertCell(-1)
-    if (soldier['Score'] !== undefined) {
-      personTableBodyCell.innerHTML = soldier['Score']
+    if (apftRecord.length > 0) {
+      personTableBodyCell.innerHTML = apftRecord[0]['Score']
+    }
+
+    // hw date
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (hwRecord.length > 0) {
+      personTableBodyCell.innerHTML = hwRecord[0]['parsedHWDate'].toFormat('MM/dd/yyyy')
+    }
+    // hw pass
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (hwRecord.length > 0) {
+      personTableBodyCell.innerHTML = hwRecord[0]['HeightWeightPass'] ? 'Yes' : 'No'
+    }
+    // bf pass
+    personTableBodyCell = personTableBodyRow.insertCell(-1)
+    if (hwRecord.length > 0) {
+      if (hwRecord[0]['BodyFatPass'] !== undefined) {
+        personTableBodyCell.innerHTML = hwRecord[0]['BodyFatPass'] ? 'Yes' : 'No'
+      }
     }
   })
   // after the first load, use 'updateAll' to refresh the table sort
@@ -391,23 +461,30 @@ function displayPersonList (soldierList) {
   $("#personTable").trigger("updateAll")
 }
 
+function getPersonRecord (record) {
+  let recordHash = record['LastName'] + "|" + record['Last4'] 
+  return (this.personHash === recordHash)
+}
+
 function getUnitSoldierList (persRecord) {
   // check to see if the unit selector is set to 'All', if yes then send back every record
-  if (this.unit.toString() === 'All') {
+  if (this.unit === 'All') {
     return true
   }
   // check to see if the soldier is attached to the unit, if attached to a unit, then he should not be listed on the 'assigned' roster
-  try {
-    if (persRecord['UnitAttached'].length > 0) {
-      return persRecord['UnitAttached'] === this.unit.toString()
-    }
-  } catch (e) {
+  if (persRecord['UnitAttached'] !== undefined && persRecord['UnitAttached'].length > 0) {
+    return persRecord['UnitAttached'] === this.unit
+  } else {
+    return persRecord['UnitAssigned'] === this.unit
   }
-  return persRecord['UnitAssigned'] === this.unit.toString()
 }
 
-function isSoldierDueWithin30Days (apftRecord) {
+function isSoldierDueApftWithin30Days (apftRecord) {
   return (apftRecord['parsedLastApft'] === undefined || apftRecord['parsedLastApft'].plus({ months: 5 }) <= this.projectedDate)
+}
+
+function isSoldierDueHwWithin30Days (hwRecord) {
+  return (hwRecord['parsedHWDate'] === undefined || hwRecord['parsedHWDate'].plus({ months: 5 }) <= this.projectedDate)
 }
 
 function isSoldierCurrentApft (apftRecord) {
@@ -416,6 +493,10 @@ function isSoldierCurrentApft (apftRecord) {
 
 function isSoldierExpiredApft (apftRecord) {
   return ((apftRecord['parsedLastApft'] === undefined) || (apftRecord['parsedLastApft'].plus({ months: 6 }) < this.projectedDate))
+}
+
+function isSoldierExpiredHw (hwRecord) {
+  return ((hwRecord['parsedHWDate'] === undefined) || (hwRecord['parsedHWDate'].plus({ months: 6 }) < this.projectedDate))
 }
 
 function isAltEvent (apftRecord) {
@@ -465,6 +546,17 @@ function getEventScoreAverage (soldierList, eventType) {
   return averageScore
 }
 
+function genLastNameLast4Keys (keyArray, persRecord) {
+  keyArray.push(persRecord['LastName'] + '|' + persRecord['Last4'])
+  return keyArray
+}
+
+function getRecordForList (record) {
+  if (this.persKeyArray.includes(record['LastName'] + "|" + record['Last4'])) {
+    return true
+  }
+}
+
 // by team, by person
 $('#displayApftStats').on('click', function () {
   // this function will build the html table to show the training data
@@ -475,9 +567,7 @@ $('#displayApftStats').on('click', function () {
     sortRestart: true,
   })
   $("#apftComplianceTable").trigger("updateAll")
-
 })
-
 </script>
 </body>
 </html>
