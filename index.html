@@ -38,7 +38,6 @@
 <script src="js/luxon.min.js"></script>
 <script src="js/jszip.js"></script>
 <script src="js/xlsx.js"></script>
-<script src="js/d3.v5.min.js"></script>
 <script src="js/jquery.tablesorter.min.js"></script>
 <script src="js/datepicker.min.js"></script>
 
@@ -59,10 +58,10 @@ const apftComplianceDatePicker= datepicker(apftComplianceDate, {
 
 // create the dtmsPersReport from the Xslx file
 // this is the personnel report from DTMS
-$('#dtmsPersReportXslx').on('change', function(event) {
+$('#dtmsPersReportXslx').on('change', event => {
   var dtmsPersReportFile = event.target.files[0]
   var reader = new FileReader()
-  reader.onload = function (e) {
+  reader.onload = e => {
     var binary = ""
     var bytes = new Uint8Array(e.target.result)
     var length = bytes.byteLength
@@ -77,17 +76,17 @@ $('#dtmsPersReportXslx').on('change', function(event) {
 
     dtmsPersReport = dtmsPersReport.filter(removeDACivilians)
   }
-  reader.onerror = function (ex) {
+  reader.onerror = ex => {
     console.log(ex)
   }
   reader.readAsArrayBuffer(dtmsPersReportFile)
 })
 
 // this contains personnel apft records
-$('#dtmsApftReportXslx').on('change', function(event) {
+$('#dtmsApftReportXslx').on('change', event => {
   var dtmsApftReportFile = event.target.files[0]
   var reader = new FileReader()
-  reader.onload = function (e) {
+  reader.onload = e => {
     binary = ""
     bytes = new Uint8Array(e.target.result)
     length = bytes.byteLength
@@ -103,17 +102,17 @@ $('#dtmsApftReportXslx').on('change', function(event) {
     // create a luxon DateTime named 'parsedLastApft' from the 'LastApft' JS Date
     dtmsApftReport = dtmsApftReport.map(setParsedLastApft)
   }
-  reader.onerror = function (ex) {
+  reader.onerror = ex => {
     console.log(ex)
   }
   reader.readAsArrayBuffer(dtmsApftReportFile)
 })
 
 // this contains personnel hw records
-$('#dtmsHWReportXslx').on('change', function(event) {
+$('#dtmsHWReportXslx').on('change', event => {
   var dtmsHWReportFile = event.target.files[0]
   var reader = new FileReader()
-  reader.onload = function (e) {
+  reader.onload = e => {
     binary = ""
     bytes = new Uint8Array(e.target.result)
     length = bytes.byteLength
@@ -128,7 +127,7 @@ $('#dtmsHWReportXslx').on('change', function(event) {
 
     dtmsHWReport = dtmsHWReport.map(setParsedHWDate)
   }
-  reader.onerror = function (ex) {
+  reader.onerror = ex => {
     console.log(ex)
   }
   reader.readAsArrayBuffer(dtmsHWReportFile)
@@ -220,6 +219,7 @@ function generateApftTable () {
   apftTableHeadCell.innerHTML = 'HW Due within 30 days'
 
   let apftTableBody = document.createElement('tbody')
+  apftTable.appendChild(apftTableBody)
 
   let apftComplianceDate = document.getElementById('apftComplianceDate').value
   let apftComplianceDateParsed = ''
@@ -230,7 +230,6 @@ function generateApftTable () {
   }
 
   // get the list of units from the dtmsPersReport
-
   // use the 'UnitAttached' if exists, then use the 'UnitAssigned'
   // sort the units alphabetically
   let dtmsUnitArray = dtmsPersReport.map(getUnits)
@@ -240,11 +239,9 @@ function generateApftTable () {
   // add the 'All' group to the dtmsUnitArray to show stats for all Soldiers
   dtmsUnitArray.push('All')
 
-  dtmsUnitArray.forEach(function (unit) {
+  dtmsUnitArray.forEach(unit => {
     // on the export, do all Soldiers have records?
-
-    // first, make the list of all Soldiers in the unit, then find their apft scores, it is ok if a Soldier doesn't have a pt score, just print blank
-
+    // make the list of all Soldiers in the unit, then find their apft scores, it is ok if a Soldier doesn't have a pt score, just print blank
     let soldierList = dtmsPersReport.filter(getUnitSoldierList, { unit: unit })
     let persKeyArray = soldierList.reduce(genLastNameLast4Keys,[])
     let apftList = dtmsApftReport.filter(getRecordForList,{ persKeyArray: persKeyArray })
@@ -318,7 +315,6 @@ function generateApftTable () {
     apftTableCell.onclick = cellClickHandler
   })
 
-  apftTable.appendChild(apftTableBody)
 }
 
 function getSoldierApftRecord (apftRecord) {
@@ -364,7 +360,7 @@ function cellClickHandler (e) {
   } else if (columnText === 'dueHwWithin30Days') {
     soldierList = hwList.filter(isSoldierDueHwWithin30Days, { projectedDate: apftComplianceDateParsed })
   } else {
-    soldierList = dtmsPersReport
+    soldierList = apftList
   }
   displayPersonList(soldierList)
 }
@@ -408,7 +404,7 @@ function displayPersonList (soldierList) {
   let personTableBodyRow
   let personTableBodyCell
 
-  soldierList.forEach(function (soldier) {
+  soldierList.forEach(soldier => {
     let personHash = soldier['LastName'] + "|" + soldier['Last4'] 
     let apftRecord = dtmsApftReport.filter(getPersonRecord,{ personHash: personHash })
     let hwRecord = dtmsHWReport.filter(getPersonRecord,{ personHash: personHash })
@@ -510,10 +506,6 @@ function addScores({ totalScore, scoreCount }, score) {
   }
 }
 
-function isRecordScore (apftRecord) {
-  return apftRecord['ForRecord']
-}
-
 function getScoreAverage (soldierList) {
   let puScore = getEventScoreAverage(soldierList, 'PushupScore')
   let suScore = getEventScoreAverage(soldierList, 'SitupScore')
@@ -523,20 +515,13 @@ function getScoreAverage (soldierList) {
   return roundedAverage
 }
 
-function getScore (apftRecord) {
-  return apftRecord[this.toString()]
-}
-
-function scoreAboveZero (apftRecord) {
-  return (apftRecord[this.toString()] > 0)
-}
-
 function getEventScoreAverage (soldierList, eventType) {
   const initialInfo = { totalScore: 0, scoreCount: 0 }
-  const scoreInfo = soldierList.filter(isRecordScore)
-    .filter(scoreAboveZero, eventType)
-    .map(getScore, eventType)
-    .reduce(addScores, initialInfo)
+  let scoreInfo = soldierList.filter(apftRecord => apftRecord['ForRecord'])
+  // don't use an arrow function here, need to have the 'this' parameter
+  scoreInfo = scoreInfo.filter(function(apftRecord) { return (apftRecord[this] > 0) }, eventType)
+  scoreInfo = scoreInfo.map(function(apftRecord) { return apftRecord[this] }, eventType)
+  scoreInfo = scoreInfo.reduce(addScores, initialInfo)
 
   const {totalScore, scoreCount} = scoreInfo
   let averageScore = totalScore / scoreCount
